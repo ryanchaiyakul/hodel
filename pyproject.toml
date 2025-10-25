@@ -1,0 +1,29 @@
+[project]
+name = "hodel"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "ryanchaiyakul", email = "ryanchaiyakul@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "flax>=0.12.0",
+    "jax>=0.8.0",
+    "matplotlib>=3.10.7",
+    "optax>=0.2.6",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "jax[cuda13]>=0.8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.18,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.0.1",
+]
