@@ -724,7 +724,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "diffrax" },
-    { name = "flax" },
     { name = "jax" },
     { name = "matplotlib" },
     { name = "optax" },
@@ -737,6 +736,7 @@ cuda = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "flax" },
     { name = "ipykernel" },
     { name = "xprof" },
 ]
@@ -744,7 +744,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "diffrax", specifier = ">=0.7.0" },
-    { name = "flax", specifier = ">=0.12.0" },
     { name = "jax", specifier = ">=0.8.0" },
     { name = "jax", extras = ["cuda13"], marker = "extra == 'cuda'", specifier = ">=0.8.0" },
     { name = "matplotlib", specifier = ">=3.10.7" },
@@ -754,6 +753,7 @@ provides-extras = ["cuda"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "flax", specifier = ">=0.12.0" },
     { name = "ipykernel", specifier = ">=7.0.1" },
     { name = "xprof", specifier = ">=2.20.7" },
 ]

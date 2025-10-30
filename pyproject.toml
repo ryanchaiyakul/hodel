@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "diffrax>=0.7.0",
-    "flax>=0.12.0",
     "jax>=0.8.0",
     "matplotlib>=3.10.7",
     "optax>=0.2.6",
@@ -26,6 +25,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "flax>=0.12.0",
     "ipykernel>=7.0.1",
     "xprof>=2.20.7",
 ]
