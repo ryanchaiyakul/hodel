@@ -136,33 +136,25 @@ class HODEL:
         aux: jaxtyping.PyTree = None,
         nsteps: int = 20,
     ) -> jax.Array:
-        def body_fn(
-            xf_prev: jax.Array, inputs: tuple[jax.Array, jax.Array]
-        ) -> tuple[jax.Array, jax.Array]:
-            lambda_, xf_star = inputs
-            xf = self.solve(lambda_, xf_prev, Theta, aux, nsteps)
-            loss = self.loss_fn(xf, xf_star, Theta)
-            return xf, loss
-
-        _, losses = jax.lax.scan(body_fn, xf0_init, (lambdas, xf_stars))
-        return jnp.mean(losses)
+        xfs = self.sim(lambdas, xf0_init, Theta, aux, nsteps)
+        return self.loss_fn(xfs, xf_stars, Theta)
 
     @partial(jax.jit, static_argnames=["nsteps"])
     def batch_loss(
         self,
         lambdas: jax.Array,
         xf0_init: jax.Array,
-        xf_stars: jax.Array,
+        batch_xf_stars: jax.Array,
         Theta: jaxtyping.PyTree = None,
         batch_aux: jaxtyping.PyTree = None,
         nsteps: int = 20,
     ):
-        batched_loss_fn = jax.vmap(
-            lambda xf_stars_, aux_: self.loss(
-                lambdas, xf0_init, xf_stars_, Theta, aux_, nsteps
-            )
+        batch_solve_fn = jax.vmap(
+            lambda aux_: self.sim(lambdas, xf0_init, Theta, aux_, nsteps)
         )
-        return jnp.sum(batched_loss_fn(xf_stars, batch_aux))
+        batch_xfs = batch_solve_fn(batch_aux)
+        losses = jax.vmap(self.loss_fn, (0, 0, None))(batch_xfs, batch_xf_stars, Theta)
+        return jnp.mean(losses)
 
     @partial(jax.jit, static_argnames=["nsteps", "optim", "nepochs"])
     def learn(
@@ -170,8 +162,8 @@ class HODEL:
         lambdas: jax.Array,
         xf0_init: jax.Array,
         xf_stars: jax.Array,
-        Theta0: jaxtyping.PyTree = None,
-        aux: jaxtyping.PyTree = None,
+        Theta0: jaxtyping.PyTree,
+        aux: jaxtyping.PyTree,
         nsteps: int = 20,
         optim: optax.GradientTransformation = optax.adam(1e-2),
         nepochs: int = 50,
@@ -191,30 +183,69 @@ class HODEL:
         )
         return Theta_final, losses
 
-    @partial(jax.jit, static_argnames=["nsteps", "optim", "nepochs"])
+    @partial(jax.jit, static_argnames=["batch_size", "nsteps", "optim", "nepochs"])
     def batch_learn(
         self,
         lambdas: jax.Array,
         xf0_init: jax.Array,
-        xf_stars: jax.Array,
-        Theta0: jaxtyping.PyTree = None,
-        batch_aux: jaxtyping.PyTree = None,
+        batch_xf_stars: jax.Array,
+        Theta0: jaxtyping.PyTree,
+        batch_aux: jaxtyping.PyTree,
+        batch_size: int = 64,
         nsteps: int = 20,
         optim: optax.GradientTransformation = optax.adam(1e-2),
         nepochs: int = 50,
+        key: jax.Array = jax.random.PRNGKey(0),
+        test_xf_stars: jax.Array | None = None,
+        test_aux: jaxtyping.PyTree | None = None,
     ):
         grad_loss_fn = jax.value_and_grad(self.batch_loss, 3)
         opt_state = optim.init(Theta0)
 
-        def body_fn(carry: tuple[jaxtyping.PyTree, optax.OptState], _: jax.Array):
-            Theta, opt_state = carry
-            L, g = grad_loss_fn(lambdas, xf0_init, xf_stars, Theta, batch_aux, nsteps)
-            updates, opt_state = optim.update(g, opt_state, Theta)
-            Theta = optax.apply_updates(Theta, updates)
-            return (Theta, opt_state), L
+        # Aux is pytree so check leaf
+        n_samples = jax.tree_util.tree_leaves(batch_aux)[0].shape[0]
+        n_batches = max(1, n_samples // batch_size)
 
-        (Theta_final, _), losses = jax.lax.scan(
-            body_fn, (Theta0, opt_state), jnp.arange(nepochs)
+        def epoch_fn(
+            carry: tuple[jaxtyping.PyTree, optax.OptState, jax.Array], _: jax.Array
+        ):
+            Theta, opt_state, key = carry
+
+            # Shuffle x_f* and aux every epoch
+            new_key, subkey = jax.random.split(key)
+            perm = jax.random.permutation(subkey, n_samples)
+            shuffled_xf_stars = batch_xf_stars[perm]
+            shuffled_aux = jax.tree.map(lambda x: x[perm], batch_aux)
+
+            def body_fn(carry: tuple[jaxtyping.PyTree, optax.OptState], idx: jax.Array):
+                # Dynamic slicing
+                xf_stars = jax.lax.dynamic_slice(
+                    shuffled_xf_stars,
+                    (idx * batch_size,) + (0,) * (shuffled_xf_stars.ndim - 1),
+                    (batch_size,) + shuffled_xf_stars.shape[1:],
+                )
+                aux = jax.tree.map(
+                    lambda x: jax.lax.dynamic_slice(
+                        x,
+                        (idx * batch_size,) + (0,) * (x.ndim - 1),
+                        (batch_size,) + x.shape[1:],
+                    ),
+                    shuffled_aux,
+                )
+
+                Theta, opt_state = carry
+                L, g = grad_loss_fn(lambdas, xf0_init, xf_stars, Theta, aux, nsteps)
+                updates, opt_state = optim.update(g, opt_state, Theta)
+                Theta = optax.apply_updates(Theta, updates)
+                return (Theta, opt_state), L
+
+            (Theta_new, new_opt_state), epoch_loss = jax.lax.scan(
+                body_fn, (Theta, opt_state), jnp.arange(n_batches)
+            )
+            return (Theta_new, new_opt_state, new_key), jnp.mean(epoch_loss)
+
+        (Theta_final, _, _), losses = jax.lax.scan(
+            epoch_fn, (Theta0, opt_state, key), jnp.arange(nepochs)
         )
         return Theta_final, losses
 
