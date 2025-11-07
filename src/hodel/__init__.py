@@ -1,3 +1,4 @@
 from .hodel import HODEL
+from . import dismech
 
-__all__ = ["HODEL"]
+__all__ = ["HODEL", "dismech"]

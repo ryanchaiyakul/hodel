@@ -27,6 +27,5 @@ build-backend = "uv_build"
 dev = [
     "flax>=0.12.0",
     "ipykernel>=7.0.1",
-    "torchvision>=0.24.0",
     "xprof>=2.20.7",
 ]
