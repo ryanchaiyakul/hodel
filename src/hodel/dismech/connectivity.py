@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 
-from .geometry import Geometry
 from .util import map_node_to_dof
 
 
@@ -43,18 +42,10 @@ class Connectivity:
         )
 
     @classmethod
-    def from_geo(cls, geo: Geometry) -> Connectivity:
-        """Backwards compatibility with PyDiSMech Geometry class.
-
-        Args:
-            geo (Geometry): PyDiSMech Geometry object.
-
-        Returns:
-            Connectivity:
-        """
-        return Connectivity.init(
-            jnp.asarray(geo.nodes, dtype=jnp.int32),
-            jnp.asarray(geo.edges, dtype=jnp.int32),
-            jnp.asarray(geo.bend_twist_springs, dtype=jnp.int32),
-            jnp.asarray(geo.bend_twist_signs, dtype=jnp.int32),
+    def from_geo(cls, mesh):
+        return cls.init(
+            jnp.asarray(mesh.nodes, dtype=jnp.int32),
+            jnp.asarray(mesh.edges, dtype=jnp.int32),
+            jnp.asarray(mesh.bend_twist_springs, dtype=jnp.int32),
+            jnp.asarray(mesh.bend_twist_signs, dtype=jnp.int32),
         )

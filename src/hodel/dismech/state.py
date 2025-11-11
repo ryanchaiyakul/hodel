@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 
+from .legacy import Mesh
 from .connectivity import Connectivity
-from .geometry import Geometry
 from .util import parallel_transport, signed_angle, rotate_axis_angle
 
 
@@ -50,12 +50,12 @@ class StaticState:
         )
 
     @classmethod
-    def from_geo(cls, geo: Geometry, top: Connectivity) -> Self:
+    def from_geo(cls, mesh: Mesh, top: Connectivity) -> Self:
         """Backwards compatibility with PyDiSMech Geometry class.
         Generate `top` from `Connectivity.from_geo(geo)`.
 
         Args:
-            geo (Geometry): PyDiSMech Geometry object.
+            mesh (Mesh): PyDiSMech Mesh object.
             top (Connectivity): Connectivity between DOFs.
 
         Returns:
@@ -63,8 +63,8 @@ class StaticState:
         """
         q = jnp.concat(
             (
-                jnp.asarray(geo.nodes, dtype=jnp.float32).flatten(),
-                jnp.zeros(geo.edges.shape[0]),
+                jnp.asarray(mesh.nodes, dtype=jnp.float32).flatten(),
+                jnp.zeros(mesh.edges.shape[0]),
             )
         )
         return cls.init(q, top)

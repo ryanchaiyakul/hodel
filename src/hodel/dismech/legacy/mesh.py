@@ -5,13 +5,11 @@ from pathlib import Path
 
 import numpy as np
 
-# TODO: Rewrite for efficiency
-
 GEOMETRY_FLOAT = np.float64
 GEOMETRY_INT = np.int64
 
 
-class Geometry:
+class Mesh:
     """
     Generate, save, and load custom node geometries
     """
@@ -295,8 +293,8 @@ class Geometry:
         else:
             return np.empty((0, 2))  # always edge
 
-    @staticmethod
-    def from_txt(fname: str | Path) -> Geometry:
+    @classmethod
+    def from_txt(cls, fname: str | Path) -> Mesh:
         """Reads from a .txt file and returns a Geometry object. Uses the same convention as the Matlab version."""
 
         def process_temp_array(header_index: int) -> None:
@@ -349,7 +347,7 @@ class Geometry:
 
         process_temp_array(cur_h)  # Process last collected data
 
-        return Geometry(*params)
+        return cls(*params)
 
     @staticmethod
     def __separate_joint_edges(
