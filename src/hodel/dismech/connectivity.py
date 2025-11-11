@@ -40,12 +40,3 @@ class Connectivity:
             triplet_edge_dofs=triplets[:, [1, 3]] + n_nodes,
             triplet_signs=triplet_signs,
         )
-
-    @classmethod
-    def from_geo(cls, mesh):
-        return cls.init(
-            jnp.asarray(mesh.nodes, dtype=jnp.int32),
-            jnp.asarray(mesh.edges, dtype=jnp.int32),
-            jnp.asarray(mesh.bend_twist_springs, dtype=jnp.int32),
-            jnp.asarray(mesh.bend_twist_signs, dtype=jnp.int32),
-        )

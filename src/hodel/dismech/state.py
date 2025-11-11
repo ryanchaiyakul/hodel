@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import register_dataclass
 
-from .legacy import Mesh
 from .connectivity import Connectivity
 from .util import parallel_transport, signed_angle, rotate_axis_angle
 
@@ -49,27 +48,6 @@ class StaticState:
             ref_twist=ref_twist,
         )
 
-    @classmethod
-    def from_geo(cls, mesh: Mesh, top: Connectivity) -> Self:
-        """Backwards compatibility with PyDiSMech Geometry class.
-        Generate `top` from `Connectivity.from_geo(geo)`.
-
-        Args:
-            mesh (Mesh): PyDiSMech Mesh object.
-            top (Connectivity): Connectivity between DOFs.
-
-        Returns:
-            Self:
-        """
-        q = jnp.concat(
-            (
-                jnp.asarray(mesh.nodes, dtype=jnp.float32).flatten(),
-                jnp.zeros(mesh.edges.shape[0]),
-            )
-        )
-        return cls.init(q, top)
-
-    @jax.jit
     def update(self, q: jax.Array, top: Connectivity) -> Self:
         """Update q + directors with new q.
 
@@ -95,7 +73,6 @@ class StaticState:
         )
 
     @staticmethod
-    @jax.jit
     def get_space_parallel(
         t: jax.Array, top: Connectivity
     ) -> tuple[jax.Array, jax.Array]:
@@ -143,7 +120,6 @@ class StaticState:
         return a1, a2
 
     @staticmethod
-    @jax.jit
     def get_time_parallel(
         t0: jax.Array, a10: jax.Array, t: jax.Array
     ) -> tuple[jax.Array, jax.Array]:
@@ -162,7 +138,6 @@ class StaticState:
         return a1, a2
 
     @staticmethod
-    @jax.jit
     def get_material_directors(
         q: jax.Array, a1: jax.Array, a2: jax.Array, top: Connectivity
     ) -> tuple[jax.Array, jax.Array]:
@@ -186,7 +161,6 @@ class StaticState:
 
     # TODO: Comment
     @staticmethod
-    @jax.jit
     def get_reference_twist(
         a1: jax.Array, tangent: jax.Array, ref_twist: jax.Array, top: Connectivity
     ) -> jax.Array:
@@ -200,7 +174,6 @@ class StaticState:
         return jax.vmap(func)(us, ts, ref_twist)
 
     @staticmethod
-    @jax.jit
     def get_tangent(q: jax.Array, top: Connectivity) -> jax.Array:
         """Get edge tangents."""
 
@@ -210,72 +183,3 @@ class StaticState:
 
         positions = q[top.edge_node_dofs]
         return jax.vmap(func)(positions)
-
-
-@register_dataclass
-@dataclass(frozen=True)
-class DynamicState(StaticState):
-    """StaticState + velocity (u) & acceleration (a)."""
-
-    u: jax.Array
-    a: jax.Array
-
-    @classmethod
-    def init(cls, q0: jax.Array, top: Connectivity) -> Self:
-        """Initialize directors with q0 at rest (u=a=0).
-
-        Args:
-            q0 (jax.Array): DOFs.
-            top (Connectivity): Connectivity between DOFs.
-
-        Returns:
-            Self:
-        """
-        t = cls.get_tangent(q0, top)
-        a1, a2 = cls.get_space_parallel(t, top)
-        m1, m2 = cls.get_material_directors(q0, a1, a2, top)
-        ref_twist = cls.get_reference_twist(
-            a1, t, jnp.zeros(top.triplet_signs.shape[0]), top
-        )
-        return cls(
-            q=q0,
-            u=jnp.zeros_like(q0),
-            a=jnp.zeros_like(q0),
-            a1=a1,
-            a2=a2,
-            m1=m1,
-            m2=m2,
-            ref_twist=ref_twist,
-        )
-
-    @jax.jit
-    def update(
-        self, q: jax.Array, u: jax.Array, a: jax.Array, top: Connectivity
-    ) -> Self:
-        """Update q + directors with new q, u and a.
-        Calculate new u/a based on your respective integration scheme.
-
-        Args:
-            q (jax.Array): DOFs.
-            u (jax.Array): velocity of DOFs.
-            a (jax.Array): acceleration of DOFs.
-            top (Connectivity): Connectivity between DOFs.
-
-        Returns:
-            Self:
-        """
-        t0 = self.get_tangent(self.q, top)
-        t = self.get_tangent(q, top)
-        a1, a2 = self.get_time_parallel(t0, self.a1, t, top)
-        m1, m2 = self.get_material_directors(q, a1, a2, top)
-        ref_twist = self.get_reference_twist(a1, t, self.ref_twist, top)
-        return type(self)(
-            q=q,
-            u=u,
-            a=a,
-            a1=a1,
-            a2=a2,
-            m1=m1,
-            m2=m2,
-            ref_twist=ref_twist,
-        )
