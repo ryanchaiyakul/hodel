@@ -15,7 +15,8 @@ class BaseTriplet:
     """Base 3-node triplet."""
 
     node_dofs: jax.Array  # [[x0, y0, z0], [x1, y1, z1], [x2, y2, z2]]
-    edge_dofs: jax.Array  # [e0, e1]
+    edge_dofs: jax.Array  # [θ0, θ1]
+    dir_dofs: jax.Array  # [e0, e1]
     edge_signs: jax.Array  # [-1/+1, -1/+1]
     l_k: jax.Array  # [l_k0, l_k1]
     ref_index: jax.Array  # [i]
@@ -44,6 +45,7 @@ class BaseTriplet:
         return self._static_get_strain(
             self.node_dofs,
             self.edge_dofs,
+            self.dir_dofs,
             self.edge_signs,
             self.l_k,
             self.ref_index,
@@ -85,6 +87,7 @@ class BaseTriplet:
     def _static_get_strain(
         node_dofs: jax.Array,
         edge_dofs: jax.Array,
+        dir_dofs: jax.Array,
         edge_signs: jax.Array,
         l_k: jax.Array,
         ref_index: jax.Array,
@@ -92,7 +95,7 @@ class BaseTriplet:
     ) -> jax.Array:
         n0, n1, n2 = state.q[node_dofs]
         m1e, m2e, m1f, m2f = BaseTriplet._get_material_directors(
-            edge_dofs, edge_signs, state
+            dir_dofs, edge_signs, state
         )
         theta_e, theta_f = BaseTriplet._get_thetas(edge_dofs, edge_signs, state)
         eps0 = BaseTriplet.get_stretch_strain(n0, n1, l_k[0])
@@ -110,13 +113,13 @@ class BaseTriplet:
     @staticmethod
     @jax.jit
     def _get_material_directors(
-        edge_dofs: jax.Array, edge_signs: jax.Array, state: StaticState
+        dir_dofs: jax.Array, edge_signs: jax.Array, state: StaticState
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         """Sign correct m1,m2."""
-        m1e = state.m1[edge_dofs[0]]
-        m2e = state.m2[edge_dofs[0]] * edge_signs[0]
-        m1f = state.m1[edge_dofs[1]]
-        m2f = state.m2[edge_dofs[1]] * edge_signs[1]
+        m1e = state.m1[dir_dofs[0]]
+        m2e = state.m2[dir_dofs[0]] * edge_signs[0]
+        m1f = state.m1[dir_dofs[1]]
+        m2f = state.m2[dir_dofs[1]] * edge_signs[1]
         return m1e, m2e, m1f, m2f
 
     @staticmethod
@@ -179,6 +182,7 @@ class DERTriplet(BaseTriplet):
         cls,
         node_dofs: jax.Array,
         edge_dofs: jax.Array,
+        dir_dofs: jax.Array,
         edge_signs: jax.Array,
         l_k: jax.Array,
         ref_index: jax.Array,
@@ -196,9 +200,11 @@ class DERTriplet(BaseTriplet):
         )
         K = jnp.diag(diag)
         nat_strain = cls._static_get_strain(
-            node_dofs, edge_dofs, edge_signs, l_k, ref_index, state
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, state
         )
-        return cls(node_dofs, edge_dofs, edge_signs, l_k, ref_index, nat_strain, K)
+        return cls(
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain, K
+        )
 
     @jax.jit
     def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array:
@@ -215,21 +221,24 @@ class ParametrizedDERTriplet(BaseTriplet):
         cls,
         node_dofs: jax.Array,
         edge_dofs: jax.Array,
+        dir_dofs: jax.Array,
         edge_signs: jax.Array,
         l_k: jax.Array,
         ref_index: jax.Array,
         state: StaticState,
     ) -> ParametrizedDERTriplet:
         nat_strain = cls._static_get_strain(
-            node_dofs, edge_dofs, edge_signs, l_k, ref_index, state
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, state
         )
-        return cls(node_dofs, edge_dofs, edge_signs, l_k, ref_index, nat_strain)
+        return cls(
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain
+        )
 
     @jax.jit
     def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array:
-        inv_l_k = 1 / self.l_k
-        v_k = 1 / jnp.mean(self.l_k)  # voronoi length
-        return jnp.diag(Theta * jnp.array([inv_l_k[0], inv_l_k[1], v_k, v_k, v_k]))
+        l_k = self.l_k
+        inv_v_k = 1 / jnp.mean(self.l_k)  # voronoi length
+        return jnp.diag(Theta * jnp.array([l_k[0], l_k[1], inv_v_k, inv_v_k, inv_v_k]))
 
 
 @register_dataclass
@@ -242,12 +251,15 @@ class Triplet(BaseTriplet):
         cls,
         node_dofs: jax.Array,
         edge_dofs: jax.Array,
+        dir_dofs: jax.Array,
         edge_signs: jax.Array,
         l_k: jax.Array,
         ref_index: jax.Array,
         state: StaticState,
     ) -> Triplet:
         nat_strain = cls._static_get_strain(
-            node_dofs, edge_dofs, edge_signs, l_k, ref_index, state
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, state
         )
-        return cls(node_dofs, edge_dofs, edge_signs, l_k, ref_index, nat_strain)
+        return cls(
+            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain
+        )

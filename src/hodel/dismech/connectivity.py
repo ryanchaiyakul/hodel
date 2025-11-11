@@ -14,10 +14,11 @@ from .util import map_node_to_dof
 class Connectivity:
     """Connectivity between DOFs."""
 
-    edge_node_dofs: jax.Array  # [[x0, y0, z0], [x1, y1, z1]]
-    edge_dofs: jax.Array  # [n1, n2]
-    triplet_edge_dofs: jax.Array  # [e0, e1]
-    triplet_signs: jax.Array  # [-1/+1, -1/+1]
+    edge_node_dofs: jax.Array  # [[[x0, y0, z0], [x1, y1, z1]], ...]
+    edge_dofs: jax.Array  # [θ, ...]
+    triplet_dir_dofs: jax.Array  # [[e0, e1], ...]
+    triplet_edge_dofs: jax.Array  # [[θ0, θ1], ...]
+    triplet_signs: jax.Array  # [[-1/+1, -1/+1], ...]
 
     @classmethod
     def init(
@@ -36,6 +37,7 @@ class Connectivity:
                 n_nodes,
                 n_nodes + edges.shape[0],
             ),
+            triplet_dir_dofs=triplets[:, [1, 3]],
             triplet_edge_dofs=triplets[:, [1, 3]] + n_nodes,
             triplet_signs=triplet_signs,
         )

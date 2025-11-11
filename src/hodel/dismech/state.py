@@ -195,9 +195,9 @@ class StaticState:
             ut = rotate_axis_angle(ut, t[1], r)
             return r + signed_angle(ut, u[1], t[1])
 
-        ts = tangent[top.triplet_edge_dofs] * top.triplet_signs[..., None]
-        us = a1[top.triplet_edge_dofs]
-        return jax.vmap(func)(ts, us, ref_twist)
+        us = a1[top.triplet_dir_dofs]
+        ts = tangent[top.triplet_dir_dofs] * top.triplet_signs[..., None]
+        return jax.vmap(func)(us, ts, ref_twist)
 
     @staticmethod
     @jax.jit
