@@ -132,7 +132,7 @@ def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = Tr
                 "transition": {"duration": 0},
                 "x": 0.1,
                 "y": 0,
-                "currentvalue": {"prefix": "t = "},
+                "currentvalue": {"prefix": "λ = "},
             }
         ],
     )

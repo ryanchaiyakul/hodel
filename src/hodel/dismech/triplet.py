@@ -22,7 +22,6 @@ class BaseTriplet:
     ref_index: jax.Array  # [i]
     nat_strain: jax.Array  # [ε, κ₁, κ₂, τ]
 
-    @jax.jit
     def get_strain(self, state: StaticState) -> jax.Array:
         """General energy function. To differentiate w.r.t. `q`, enclose the update like below
 
@@ -52,7 +51,6 @@ class BaseTriplet:
             state,
         )
 
-    @jax.jit
     def get_energy(
         self,
         state: StaticState,
@@ -79,11 +77,9 @@ class BaseTriplet:
         del_strain = self.get_strain(state) - self.nat_strain
         return self._core_energy_func(del_strain, Theta)
 
-    @jax.jit
     def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array: ...
 
     @staticmethod
-    @jax.jit
     def _static_get_strain(
         node_dofs: jax.Array,
         edge_dofs: jax.Array,
@@ -104,14 +100,12 @@ class BaseTriplet:
         tau = BaseTriplet.get_twist_strain(theta_e, theta_f, state.ref_twist[ref_index])
         return jnp.concat([eps0, eps1, kappa, tau])
 
-    @jax.jit
     def _core_energy_func(
         self, del_strain: jax.Array, Theta: jaxtyping.PyTree
     ) -> jax.Array:
         return 0.5 * del_strain.T @ self.get_K(del_strain, Theta) @ del_strain
 
     @staticmethod
-    @jax.jit
     def _get_material_directors(
         dir_dofs: jax.Array, edge_signs: jax.Array, state: StaticState
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
@@ -123,7 +117,6 @@ class BaseTriplet:
         return m1e, m2e, m1f, m2f
 
     @staticmethod
-    @jax.jit
     def _get_thetas(
         edge_dofs: jax.Array, edge_signs: jax.Array, state: StaticState
     ) -> tuple[jax.Array, jax.Array]:
@@ -133,14 +126,12 @@ class BaseTriplet:
         return theta_e, theta_f
 
     @staticmethod
-    @jax.jit
     def get_stretch_strain(n0: jax.Array, n1: jax.Array, l_k: jax.Array) -> jax.Array:
         edge = n1 - n0
         edge_len = jnp.linalg.norm(edge)
         return jnp.array([edge_len / l_k - 1.0])
 
     @staticmethod
-    @jax.jit
     def get_bend_strain(
         n0: jax.Array,
         n1: jax.Array,
@@ -163,7 +154,6 @@ class BaseTriplet:
         return jnp.array([kappa1, kappa2])
 
     @staticmethod
-    @jax.jit
     def get_twist_strain(
         theta_e: jax.Array, theta_f: jax.Array, ref_twist: jax.Array
     ) -> jax.Array:
@@ -206,39 +196,8 @@ class DERTriplet(BaseTriplet):
             node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain, K
         )
 
-    @jax.jit
     def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array:
         return self.K
-
-
-@register_dataclass
-@dataclass(frozen=True)
-class ParametrizedDERTriplet(BaseTriplet):
-    """DER with constant diagonal stiffness matrix where K is passed as Theta."""
-
-    @classmethod
-    def init(
-        cls,
-        node_dofs: jax.Array,
-        edge_dofs: jax.Array,
-        dir_dofs: jax.Array,
-        edge_signs: jax.Array,
-        l_k: jax.Array,
-        ref_index: jax.Array,
-        state: StaticState,
-    ) -> ParametrizedDERTriplet:
-        nat_strain = cls._static_get_strain(
-            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, state
-        )
-        return cls(
-            node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain
-        )
-
-    @jax.jit
-    def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array:
-        l_k = self.l_k
-        inv_v_k = 1 / jnp.mean(self.l_k)  # voronoi length
-        return jnp.diag(Theta * jnp.array([l_k[0], l_k[1], inv_v_k, inv_v_k, inv_v_k]))
 
 
 @register_dataclass
@@ -263,3 +222,14 @@ class Triplet(BaseTriplet):
         return cls(
             node_dofs, edge_dofs, dir_dofs, edge_signs, l_k, ref_index, nat_strain
         )
+
+
+@register_dataclass
+@dataclass(frozen=True)
+class ParametrizedDERTriplet(Triplet):
+    """DER with constant diagonal stiffness matrix where [EA1, EA2, EI1, EI2, GJ] is passed as Theta."""
+
+    def get_K(self, del_strain: jax.Array, Theta: jaxtyping.PyTree) -> jax.Array:
+        l_k = self.l_k
+        inv_v_k = 1 / jnp.mean(self.l_k)  # voronoi length
+        return jnp.diag(Theta * jnp.array([l_k[0], l_k[1], inv_v_k, inv_v_k, inv_v_k]))
