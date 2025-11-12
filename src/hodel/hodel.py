@@ -53,7 +53,12 @@ class HODEL:
         lambda xf, xf_star, _: jnp.linalg.norm(xf - xf_star) ** 2
     )
     update_fn: Callable[
-        [jax.Array, Callable[[jax.Array], jax.Array], Callable[[jax.Array], jax.Array]],
+        [
+            jax.Array,
+            Callable[[jax.Array], jax.Array],
+            Callable[[jax.Array], jaxtyping.PyTree],
+            jaxtyping.PyTree,
+        ],
         tuple[jax.Array, Any],
     ] = newton
     solve_fn: Callable[
@@ -121,6 +126,7 @@ class HODEL:
         rhs = (dxfdxbE @ dxbdlambda - dWdlambda).squeeze()
         return jnp.linalg.solve(dxfdxfE, rhs)
 
+    # TODO: figure out how to carry update
     @jax.jit
     def get_ode_term(
         self,
@@ -334,10 +340,14 @@ def get_solve(
                 xf,
                 lambda x: self.get_residual(lambda_, x, Theta, aux, carry),
                 lambda x: jax.hessian(self.get_energy, 0)(x, xb, Theta, aux, carry),
+                aux,
             )
 
         xf_star, _ = jax.lax.scan(body_fn, xf0_init, jnp.arange(nsteps))
-
+        jax.debug.print(
+            "err: {}",
+            jnp.linalg.norm(self.get_residual(lambda_, xf_star, Theta, aux, carry)),
+        )
         return xf_star
 
     def _solve_fwd(

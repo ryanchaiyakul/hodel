@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Self
 from dataclasses import dataclass
 
 import jax
@@ -23,7 +22,7 @@ class StaticState:
     ref_twist: jax.Array
 
     @classmethod
-    def init(cls, q0: jax.Array, top: Connectivity) -> Self:
+    def init(cls, q0: jax.Array, top: Connectivity) -> StaticState:
         """Initialize directors with q0.
 
         Args:
@@ -31,7 +30,7 @@ class StaticState:
             top (Connectivity): Connectivity between DOFs.
 
         Returns:
-            Self:
+            StaticState:
         """
         t = cls.get_tangent(q0, top)
         a1, a2 = cls.get_space_parallel(t, top)
@@ -48,7 +47,7 @@ class StaticState:
             ref_twist=ref_twist,
         )
 
-    def update(self, q: jax.Array, top: Connectivity) -> Self:
+    def update(self, q: jax.Array, top: Connectivity) -> StaticState:
         """Update q + directors with new q.
 
         Args:
@@ -56,7 +55,7 @@ class StaticState:
             top (Connectivity): Connectivity between DOFs.
 
         Returns:
-            Self:
+            StaticState:
         """
         t0 = self.get_tangent(self.q, top)
         t = self.get_tangent(q, top)

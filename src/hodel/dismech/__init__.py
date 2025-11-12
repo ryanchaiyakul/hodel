@@ -95,7 +95,7 @@ def from_legacy_custom(
     geom: Geometry,
     mat: Material,
     cls: type[Triplet] = ParametrizedDERTriplet,
-) -> tuple[Connectivity, StaticState, jax.Array, Triplet]:
+) -> tuple[Connectivity, StaticState, jax.Array, jax.Array, Triplet]:
     """Get Triplet from legacy classes (do not override init).
 
     Args:
@@ -131,6 +131,9 @@ def from_legacy_custom(
     v_ref_len = v_ref_len.at[mesh.edges[:, 1]].add(weights)
     mass = get_mass(v_ref_len, ref_len, geom, mat)
 
+    EA, EI1, EI2, GJ = get_rod_stiffness(geom, mat)
+    theta = jnp.array([EA, EA, EI1, EI2, GJ])
+
     node_dofs = map_node_to_dof(
         jnp.asarray(mesh.bend_twist_springs[:, [0, 2, 4]], dtype=jnp.int32)
     )
@@ -148,4 +151,4 @@ def from_legacy_custom(
         jnp.arange(node_dofs.shape[0])[..., None],
         state,
     )
-    return top, state, mass, triplets
+    return top, state, mass, theta, triplets
