@@ -8,9 +8,9 @@ from .connectivity import Connectivity
 
 def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = True):
     def get_edge_go(q: np.ndarray, edge_node_dofs: np.ndarray) -> go.Scatter3d:
-        q0_edge_nodes = q[edge_node_dofs]
+        q_nodes = q[edge_node_dofs]
         x_edges, y_edges, z_edges = [], [], []
-        for e in q0_edge_nodes:
+        for e in q_nodes:
             x_edges += [e[0, 0], e[1, 0], None]
             y_edges += [e[0, 1], e[1, 1], None]
             z_edges += [e[0, 2], e[1, 2], None]
@@ -24,13 +24,66 @@ def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = Tr
             name="edges",
         )
 
+    def get_triangles_go(q: np.ndarray, hinge_node_dofs: np.ndarray) -> go.Mesh3d:
+        # q_nodes shape: (N, 4, 3)
+        q_nodes = q[hinge_node_dofs]
+
+        # Build triangles: (N,2,3,3)
+        tris = np.stack(
+            [
+                q_nodes[:, [0, 1, 2], :],  # tri 1
+                q_nodes[:, [0, 1, 3], :],  # tri 2
+            ],
+            axis=1,
+        )
+
+        # Reshape to (2N, 3, 3) then (2N*3, 3)
+        tris_flat = tris.reshape(-1, 3, 3)
+
+        # All vertices
+        vertices = tris_flat.reshape(-1, 3)
+        x = vertices[:, 0]
+        y = vertices[:, 1]
+        z = vertices[:, 2]
+
+        # Define triangle connectivity: each triangle uses 3 consecutive vertices
+        n_tris = tris_flat.shape[0]
+        i = np.arange(0, n_tris * 3, 3)  # [0, 3, 6, 9, ...]
+        j = np.arange(1, n_tris * 3, 3)  # [1, 4, 7, 10, ...]
+        k = np.arange(2, n_tris * 3, 3)  # [2, 5, 8, 11, ...]
+
+        return go.Mesh3d(
+            x=x,
+            y=y,
+            z=z,
+            i=i,
+            j=j,
+            k=k,
+            opacity=0.75,
+            name="triangles",
+        )
+
     # Avoid cpu <-> gpu overhead
     edge_node_dofs = np.array(conn.edge_node_dofs)
+    hinge_node_dofs = np.array(conn.hinge_dofs)
     q_numpy = np.array(qs)
     t_numpy = np.round(np.array(t), 3)
 
+    def get_data(q: np.ndarray):
+        if edge_node_dofs.size and hinge_node_dofs.size:
+            return get_edge_go(q, edge_node_dofs), get_triangles_go(q, hinge_node_dofs)
+        elif hinge_node_dofs.size:
+            return get_triangles_go(q, hinge_node_dofs)
+        elif hinge_node_dofs.size:
+            return get_edge_go(q, edge_node_dofs)
+        else:
+            raise ValueError("Cannot animate an empty scene!")
+
     frames = [
-        go.Frame(data=get_edge_go(q, edge_node_dofs), name=str(t))
+        go.Frame(
+            data=get_data(q),
+            name=str(t),
+        )
         for q, t in zip(q_numpy, t_numpy)
     ]
 
@@ -43,10 +96,14 @@ def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = Tr
     if fix_axes:
         padding = 0.05
 
-        q_nodes = q_numpy[:, edge_node_dofs]
-        x_vals = q_nodes[:, :, :, 0]
-        y_vals = q_nodes[:, :, :, 1]
-        z_vals = q_nodes[:, :, :, 2]
+        if conn.edge_node_dofs.size:
+            q_nodes = q_numpy[:, : conn.edge_dofs[0]].reshape(-1, 3)
+        else:
+            q_nodes = q_numpy.reshape(-1, 3)
+
+        x_vals = q_nodes[:, 0]
+        y_vals = q_nodes[:, 1]
+        z_vals = q_nodes[:, 2]
 
         x_range = np.max(x_vals) - np.min(x_vals)
         y_range = np.max(y_vals) - np.min(y_vals)
@@ -138,7 +195,7 @@ def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = Tr
     )
 
     fig = go.Figure(
-        data=get_edge_go(q_numpy[0], edge_node_dofs),
+        data=get_data(q_numpy[0]),
         frames=frames,
         layout=layout,
     )

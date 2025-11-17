@@ -223,16 +223,16 @@ class Mesh:
             self.__bend_twist_springs = (
                 np.concat(bend_twist_springs)
                 if len(bend_twist_springs) != 0
-                else np.empty(0)
+                else np.empty((0,5))
             )
             self.__bend_twist_signs = (
                 np.concat(bend_twist_signs)
                 if len(bend_twist_signs) != 0
-                else np.empty(0)
+                else np.empty((0,2))
             )
         else:
-            self.__bend_twist_springs = np.empty(0)
-            self.__bend_twist_signs = np.empty(0)
+            self.__bend_twist_springs = np.empty((0,5))
+            self.__bend_twist_signs = np.empty((0,2))
 
         # sequence edges
         self.__edges = self.__safe_concat(

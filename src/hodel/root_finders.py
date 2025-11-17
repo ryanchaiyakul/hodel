@@ -10,4 +10,6 @@ def newton(
     hessian: Callable[[jax.Array], jax.Array],
     aux: jaxtyping.PyTree,
 ) -> tuple[jax.Array, None]:
-    return x - jnp.linalg.solve(hessian(x), residual(x)), None
+    return x - jnp.linalg.solve(
+        hessian(x) + 1e-8 * jnp.eye(x.shape[0]), residual(x)
+    ), None

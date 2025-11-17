@@ -24,23 +24,8 @@ def get_rod_stiffness(
 
 
 def get_shell_stiffness(
-    geom: Geometry, material: Material, ref_len: np.ndarray, use_mid_edge: bool
+    geom: Geometry, material: Material
 ) -> typing.Tuple[float, float]:
-    # TODO: rewrite this because it doesn't make sense
-    if use_mid_edge:
-        ks = (
-            2
-            * material.youngs_shell
-            * geom.shell_h
-            / (1 - material.poisson_shell**2)
-            * ref_len
-        )
-        kb = (
-            material.youngs_shell
-            * geom.shell_h**3
-            / (24 * (1 - material.poisson_shell**2))
-        )
-    else:
-        ks = (3**0.5 / 2) * material.youngs_shell * geom.shell_h * ref_len
-        kb = (2 / 3**0.5) * material.youngs_shell * (geom.shell_h**3) / 12
-    return ks, kb  # type: ignore
+    ks = (3**0.5 / 2) * material.youngs_shell * geom.shell_h
+    kb = (2 / 3**0.5) * material.youngs_shell * (geom.shell_h**3) / 12
+    return ks, kb
