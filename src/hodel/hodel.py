@@ -11,6 +11,7 @@ import optax
 import diffrax
 import jaxtyping
 
+from .config import SolverConfig
 from .root_finders import newton
 
 
@@ -27,9 +28,9 @@ class Method(Enum):
         "get_energy",
         "get_W_fn",
         "get_xb_fn",
+        "carry_fn",
         "loss_fn",
         "update_fn",
-        "carry_fn",
     ],
 )
 @dataclass
@@ -127,7 +128,18 @@ class HODEL:
         dxbdlambda = jax.jacobian(self.get_xb, 0)(lambda_, aux)
         dWdlambda = jax.jacobian(self.get_W, 0)(lambda_, aux)
         rhs = (dxfdxbE @ dxbdlambda - dWdlambda).squeeze()
-        return jnp.linalg.solve(dxfdxfE, rhs)
+        return -jnp.linalg.solve(dxfdxfE, rhs)
+
+    def update_carry(
+        self,
+        lambda_: jax.Array,
+        xf: jax.Array,
+        aux: jaxtyping.PyTree = None,
+        carry: jaxtyping.PyTree = None,
+    ) -> jaxtyping.PyTree:
+        if self.carry_fn:
+            return self.carry_fn(xf, self.get_xb(lambda_, aux), aux, carry)
+        return carry
 
     def get_ode_term(
         self,
@@ -135,14 +147,18 @@ class HODEL:
         aux: jaxtyping.PyTree = None,
         carry: jaxtyping.PyTree = None,
     ) -> diffrax.ODETerm:
-        """Diffrax ODETerm for integration. (CARRY DOES NOT WORK)"""
-        return diffrax.ODETerm(
-            lambda t, x, args: -self.get_dxf_dlambda(
-                jnp.asarray(t), jnp.asarray(x), Theta, aux, carry
-            )
-        )
+        """Diffrax ODETerm for integration. Carry updates from initial only."""
 
-    @partial(jax.jit, static_argnames=["nsteps"])
+        def term(
+            t: jaxtyping.PyTree, x: jaxtyping.PyTree, args: jaxtyping.PyTree
+        ) -> jaxtyping.PyTree:
+            lambda_ = jnp.asarray(t)
+            xf = jnp.asarray(x)
+            return self.get_dxf_dlambda(lambda_, xf, Theta, aux, carry)
+
+        return diffrax.ODETerm(term)
+
+    @partial(jax.jit, static_argnames=["config"])
     def solve(
         self,
         lambdas: jax.Array,
@@ -150,7 +166,7 @@ class HODEL:
         Theta: jaxtyping.PyTree = None,
         aux: jaxtyping.PyTree = None,
         carry: jaxtyping.PyTree = None,
-        nsteps: int = 10,
+        config: SolverConfig = SolverConfig(),
     ) -> jax.Array:
         """Iteratively solve λs for x_f which minimizes F_f(x_f,Θ,λ)=0."""
         hodel_carry = carry
@@ -159,18 +175,16 @@ class HODEL:
             carry: tuple[jax.Array, jaxtyping.PyTree], lambda_: jax.Array
         ) -> tuple[tuple[jax.Array, jaxtyping.PyTree], jax.Array]:
             xf_prev, carry_prev = carry
-            xf_new = self.solve_fn(lambda_, xf_prev, Theta, aux, carry_prev, nsteps)
-            carry_new = (
-                self.carry_fn(xf_new, self.get_xb(lambda_, aux), aux, carry_prev)
-                if self.carry_fn
-                else None
+            xf_new = self.solve_fn(
+                lambda_, xf_prev, Theta, aux, carry_prev, config.nsteps
             )
+            carry_new = self.update_carry(lambda_, xf_new, aux, carry_prev)
             return (xf_new, carry_new), xf_new
 
         _, xfs = jax.lax.scan(body_fn, (xf0_init, hodel_carry), lambdas)
         return xfs
 
-    @partial(jax.jit, static_argnames=["nsteps", "solver", "dt0"])
+    @partial(jax.jit, static_argnames=["config"])
     def ode_solve(
         self,
         lambdas: jax.Array,
@@ -178,29 +192,32 @@ class HODEL:
         Theta: jaxtyping.PyTree = None,
         aux: jaxtyping.PyTree = None,
         carry: jaxtyping.PyTree = None,
-        nsteps: int = 10,
-        solver: diffrax.AbstractSolver = diffrax.Tsit5(),
-        dt0: float = 1e-2,
+        config: SolverConfig = SolverConfig(),
     ) -> jax.Array:
         """Using the `self.get_ode_term`, forward propogate from λ=[0.0, 1.0]"""
         term = self.get_ode_term(Theta, aux, carry)
         saveat = diffrax.SaveAt(ts=lambdas)
-        xf0 = self.solve(jnp.array([0.0]), xf0_init, Theta, aux, carry, nsteps)[0]
+        if config.solve_xf0:
+            y0 = self.solve(jnp.array([0.0]), xf0_init, Theta, aux, carry, config)[0]
+        else:
+            y0 = xf0_init
 
         return cast(
             jax.Array,
             diffrax.diffeqsolve(
                 term,
-                solver,
-                t0=0.0,
-                t1=1.0,
-                dt0=dt0,
-                y0=xf0,
+                config.solver,
+                t0=jnp.min(lambdas),
+                t1=jnp.max(lambdas),
+                dt0=config.dt0,
+                y0=y0,
                 saveat=saveat,
+                max_steps=config.max_steps,
+                stepsize_controller=config.stepsize_controller,
             ).ys,
         )
 
-    @partial(jax.jit, static_argnames=["method", "kwargs"])
+    @partial(jax.jit, static_argnames=["method", "config"])
     def loss(
         self,
         lambdas: jax.Array,
@@ -210,23 +227,28 @@ class HODEL:
         aux: jaxtyping.PyTree = None,
         carry: jaxtyping.PyTree = None,
         method: Method = Method.ODE,
-        **kwargs,
+        config: SolverConfig = SolverConfig(),
     ) -> jax.Array:
         if method == Method.Residual:
-            get_batch_residual = jax.vmap(
-                lambda lambda_, xf_: self.get_residual(lambda_, xf_, Theta, aux)
-            )
+
+            def get_batch_residual(lambdas, xfs):
+                return jax.vmap(
+                    lambda lambda_, xf_: self.get_residual(
+                        lambda_, xf_, Theta, aux, carry
+                    )
+                )(lambdas, xfs)
+
             pred = get_batch_residual(lambdas, xf_stars)
             y = jnp.zeros_like(pred)
         if method == Method.Minimization:
-            pred = self.solve(lambdas, xf0, Theta, aux, carry, **kwargs)
+            pred = self.solve(lambdas, xf0, Theta, aux, carry, config)
             y = xf_stars
         else:
-            pred = self.ode_solve(lambdas, xf0, Theta, aux, carry, **kwargs)
+            pred = self.ode_solve(lambdas, xf0, Theta, aux, carry, config)
             y = xf_stars
         return self.loss_fn(pred, y, Theta)
 
-    @partial(jax.jit, static_argnames=["method", "optim", "nepochs"])
+    @partial(jax.jit, static_argnames=["method", "config", "optim", "nepochs"])
     def learn(
         self,
         lambdas: jax.Array,
@@ -236,9 +258,9 @@ class HODEL:
         aux: jaxtyping.PyTree = None,
         carry: jaxtyping.PyTree = None,
         method: Method = Method.Minimization,
+        config: SolverConfig = SolverConfig(solve_xf0=True, dt0=1e-3, max_steps=10000),
         optim: optax.GradientTransformation = optax.adam(1e-2),
         nepochs: int = 10,
-        **kwargs,
     ):
         grad_loss_fn = jax.value_and_grad(self.loss, 3)
         opt_state = optim.init(Theta0)
@@ -248,7 +270,7 @@ class HODEL:
         def body_fn(carry: tuple[jaxtyping.PyTree, optax.OptState], _: jax.Array):
             Theta, opt_state = carry
             L, g = grad_loss_fn(
-                lambdas, xf0, xf_stars, Theta, aux, hodel_carry, method, **kwargs
+                lambdas, xf0, xf_stars, Theta, aux, hodel_carry, method, config
             )
             updates, new_opt_state = optim.update(g, opt_state, Theta)
             new_Theta = optax.apply_updates(Theta, updates)
@@ -271,6 +293,14 @@ class HODEL:
         **kwargs,
     ):
         if method == Method.Residual:
+
+            def get_batch_residual(lambdas, xfs, aux_, carry_):
+                return jax.vmap(
+                    lambda lambda_, xf_: self.get_residual(
+                        lambda_, xf_, Theta, aux_, carry_
+                    )
+                )(lambdas, xfs)
+
             raise NotImplementedError
         if method == Method.Minimization:
             batch_solve_fn = jax.vmap(

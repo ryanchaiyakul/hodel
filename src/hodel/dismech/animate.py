@@ -74,7 +74,7 @@ def animate(t: jax.Array, qs: jax.Array, conn: Connectivity, fix_axes: bool = Tr
             return get_edge_go(q, edge_node_dofs), get_triangles_go(q, hinge_node_dofs)
         elif hinge_node_dofs.size:
             return get_triangles_go(q, hinge_node_dofs)
-        elif hinge_node_dofs.size:
+        elif edge_node_dofs.size:
             return get_edge_go(q, edge_node_dofs)
         else:
             raise ValueError("Cannot animate an empty scene!")

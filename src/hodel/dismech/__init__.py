@@ -66,13 +66,13 @@ def from_legacy(
 
     triplets = hinges = None
     if mesh.bend_twist_springs.size:
-        node_dofs = map_node_to_dof(
-            jnp.asarray(mesh.bend_twist_springs[:, [0, 2, 4]], dtype=jnp.int32)
-        )
+        bt_nodes = jnp.asarray(mesh.bend_twist_springs[:, [0, 2, 4]], jnp.int32)
+        node_dofs = map_node_to_dof(bt_nodes)
+        bt_edges = jnp.concatenate([bt_nodes[:, [0, 1]], bt_nodes[:, [1, 2]]], axis=0)
 
         EA, EI1, EI2, GJ = get_rod_stiffness(geom, mat)
         n_triplets = node_dofs.shape[0]
-        batch_EA = jnp.repeat(jnp.array([[EA]]), n_triplets, axis=0)
+        batch_EA = jnp.repeat(jnp.array([[EA, EA]]), n_triplets, axis=0)
         batch_EI = jnp.repeat(jnp.array([[EI1, EI2]]), n_triplets, axis=0)
         batch_GJ = jnp.repeat(jnp.array([[GJ]]), n_triplets, axis=0)
 
@@ -83,6 +83,20 @@ def from_legacy(
             state.q[node_dofs[:, 2]] - state.q[node_dofs[:, 1]], axis=1
         )
         l_k = jnp.stack([l0, l1], axis=1)
+
+        # We "duplicate" stretch springs by stenciling with overlap so scale K'=K/N
+        bt_edges_sorted = jnp.sort(bt_edges, axis=1)
+        edge_ids = (bt_edges_sorted[:, 0] << 16) | bt_edges_sorted[:, 1]
+        _, inverse_indices, counts = jnp.unique(
+            edge_ids, return_inverse=True, return_counts=True, size=len(edge_ids)
+        )
+
+        n = len(bt_nodes)
+        counts_01 = counts[inverse_indices[:n]]
+        counts_12 = counts[inverse_indices[n:]]
+
+        bt_counts = jnp.stack([counts_01, counts_12], axis=1)
+        batch_EA = batch_EA / bt_counts
 
         triplets = jax.vmap(DERTriplet.init, (0, 0, 0, 0, 0, 0, 0, 0, 0, None))(
             node_dofs,
@@ -127,6 +141,7 @@ def from_legacy(
         ks, kb = get_shell_stiffness(geom, mat)
         ks = jnp.repeat(jnp.array([[ks]]), n_hinges, axis=0)
         kb = jnp.repeat(jnp.array([[kb]]), n_hinges, axis=0)
+        # TODO: do ks scaling like with rods
         hinges = jax.vmap(DESHinge.init, (0, 0, 0, 0, None))(
             top.hinge_dofs, l_k, ks, kb, state
         )
