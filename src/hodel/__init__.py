@@ -1,5 +1,4 @@
-from .hodel import HODEL, Method
-from .config import SolverConfig
+from .hodel import HODEL, Method, SolverConfig
 from . import dismech
 
 

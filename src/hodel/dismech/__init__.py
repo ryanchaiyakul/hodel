@@ -1,6 +1,12 @@
 from .state import StaticState
 from .connectivity import Connectivity
-from .stencils import DERTriplet, ParametrizedDERTriplet, Triplet, DESHinge, Hinge
+from .stencils import (
+    DERTriplet,
+    ParametrizedDERTriplet,
+    Triplet,
+    DESHinge,
+    Hinge,
+)
 from .util import map_node_to_dof
 from .animate import animate
 from .legacy import (
